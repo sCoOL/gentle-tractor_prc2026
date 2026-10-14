@@ -82,7 +82,7 @@ and inform this flight's treatment.
 | File | Coverage | Result / status |
 |---|---|---|
 | [gentle-tractor_v85.parquet](Alternative%20Models/gentle-tractor_v85.parquet) | January + July 2026; 344,841 departures | Estimated RMSE **212.5166 seconds (about 212.5 seconds)**, calculated from previous submission results; not a measured official score for this file. |
-| [gentle-tractor_final.parquet](Alternative%20Models/gentle-tractor_final.parquet) | January, February, June + July 2026; 670,790 departures | Frozen v85 weights applied to rebuilt source models and the final ranking inputs; official RMSE is unverified. |
+| [gentle-tractor_final_Fitted.parquet](Alternative%20Models/gentle-tractor_final_Fitted.parquet) | January, February, June + July 2026; 670,790 departures | Frozen v85 weights applied to rebuilt source models and the final ranking inputs; official RMSE is unverified. |
 
 Some original source checkpoints were unavailable, so the four-month file rebuilds those sources from their recorded
 recipes. Its January / July predictions therefore differ from the original test by 7.93 seconds RMS, or 6.41 seconds
