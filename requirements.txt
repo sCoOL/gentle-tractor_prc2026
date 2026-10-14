@@ -1,0 +1,15 @@
+# Python 3.14 (versions used for the submitted files)
+pandas==3.0.0
+numpy==2.4.2
+pyarrow==23.0.1
+duckdb==1.5.5
+lightgbm==4.7.0
+xgboost==3.4.1
+scikit-learn==1.9.1
+scipy==1.17.1
+torch==2.10.0
+openpyxl==3.1.5
+astral==3.2
+holidays==0.104
+openap==2.6.1
+pytest

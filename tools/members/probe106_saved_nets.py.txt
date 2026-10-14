@@ -1,0 +1,140 @@
+
+
+# ======================================================================================================================
+# Appended by tools/members/make_probe106_ext.py: saved networks and their re-prediction.
+# The two builders below repeat the local ``Net`` classes of fit_mlp / fit_mlp_set line for line (same module names,
+# so the state_dict keys match); predict_saved repeats mlp_inputs' held-side preprocessing with the SAVED training
+# statistics and the scoring loops of the two fit functions. Checked by re-predicting the training run's held frame.
+# ======================================================================================================================
+def _num_block_saved(df, nums, stats):
+    lo, hi, mu, sd, nan_cols = stats[:5]
+    X = df[nums].apply(pd.to_numeric, errors='coerce').astype('float64').values
+    Xc = (np.clip(X, lo, hi) - mu) / sd
+    ind = np.isnan(X[:, nan_cols]).astype('float32')
+    return np.hstack([np.nan_to_num(Xc, nan=0.0).astype('float32'), ind])
+
+
+def _cat_block_saved(df, cats, maps):
+    return np.column_stack([df[c].astype(str).map(maps[c]).fillna(0).astype('int64').values for c in cats])
+
+
+def build_mlp_net(maps, cats, n_num, params):
+    import torch
+    from torch import nn
+
+    class Net(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.embs = nn.ModuleList([nn.Embedding(len(maps[c]) + 1, min(params['emb_max'], (len(maps[c]) + 2) // 2)) for c in cats])
+            d = n_num + sum(e.embedding_dim for e in self.embs)
+            layers = []
+            for h in params['hidden']:
+                layers += [nn.Linear(d, h), nn.SiLU(), nn.Dropout(params['dropout'])]; d = h
+            layers.append(nn.Linear(d, 1))
+            self.mlp = nn.Sequential(*layers)
+
+        def forward(self, xn, xk):
+            z = torch.cat([xn] + [e(xk[:, i]) for i, e in enumerate(self.embs)], dim=1)
+            return self.mlp(z).squeeze(1)
+    return Net()
+
+
+def build_set_net(maps, cats, n_num, nf, params):
+    import torch
+    from torch import nn
+    dm = params['d_tok']
+
+    class Net(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.embs = nn.ModuleList([nn.Embedding(len(maps[c]) + 1, min(params['emb_max'], (len(maps[c]) + 2) // 2)) for c in cats])
+            d_row = n_num + sum(e.embedding_dim for e in self.embs)
+            self.tok_in = nn.Sequential(nn.Linear(nf, dm), nn.SiLU(), nn.Linear(dm, dm))
+            self.enc = None
+            if params['layers']:
+                layer = nn.TransformerEncoderLayer(dm, params['heads'], dim_feedforward=2 * dm, dropout=0.0, activation='gelu',
+                                                   batch_first=True, norm_first=True)
+                self.enc = nn.TransformerEncoder(layer, params['layers'], enable_nested_tensor=False)
+            self.q = nn.Linear(d_row, dm)
+            self.pool = nn.MultiheadAttention(dm, params['heads'], batch_first=True)
+            d = d_row + 2 * dm
+            layers = []
+            for h in params['hidden']:
+                layers += [nn.Linear(d, h), nn.SiLU(), nn.Dropout(params['dropout'])]; d = h
+            layers.append(nn.Linear(d, 1))
+            self.mlp = nn.Sequential(*layers)
+
+        def forward(self, xn, xk, tok):
+            z = torch.cat([xn] + [e(xk[:, i]) for i, e in enumerate(self.embs)], dim=1)
+            tok = tok.float()
+            pad = tok[..., 0] < 0.5
+            h = self.tok_in(tok)
+            if self.enc is not None:
+                h = self.enc(h, src_key_padding_mask=pad)
+            a, _ = self.pool(self.q(z).unsqueeze(1), h, h, key_padding_mask=pad, need_weights=False)
+            keep = (~pad).unsqueeze(-1).to(h.dtype)
+            mean = (h * keep).sum(1) / keep.sum(1)
+            return self.mlp(torch.cat([z, a.squeeze(1), mean], dim=1)).squeeze(1)
+    return Net()
+
+
+def post_tokens(T, params):
+    """fit_mlp_set's token post-processing (kinds ablation, mask_self_nm), in place."""
+    import nbr_set
+    kinds = params.get('kinds', ('dep', 'arr')); ctx = params.get('ctx')
+    for kind in ('dep', 'arr'):
+        if kind not in kinds:
+            T[T[..., nbr_set.F[f'is_{kind}']] > 0.5] = 0
+    if params.get('mask_self_nm'):
+        F = nbr_set.F
+        for c in ('anchor', 'dur', 'plan', 'wake_L', 'wake_M', 'wake_H', 'wake_J'):
+            T[:, 0, F[c]] = 0
+        T[:, 0, F['anchor_missing']] = 1; T[:, 0, F['plan_missing']] = 1
+        if (ctx or {}).get('surge'):
+            T[:, 0, nbr_set.surge_index('dur_res', T.shape[-1])] = 0
+    return T
+
+
+def save_net(path, kind, net, I, params, blk, nf, clf):
+    import torch
+    path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save({'kind': kind, 'state_dict': {k: v.detach().cpu() for k, v in net.state_dict().items()}, 'params': params,
+                'cols': list(blk['cols']), 'cats': list(I['cats']), 'nums': list(I['nums']), 'stats': I['stats'],
+                'maps': I['maps'], 'y_mu': I['y_mu'], 'y_sd': I['y_sd'], 'direct': bool(I['direct']), 'nf': nf,
+                'clf': bool(clf), 'n_num': int(I['Xn'].shape[1]), 'train_rows': int(len(blk['train']))}, str(path))
+    print(f'    saved network -> {path}', flush=True)
+
+
+def predict_saved(path, frame, tokens_fn=None):
+    """Score ``frame`` (already transformed like the training held frame: masks, flags, merged columns) with a saved
+    network. ``tokens_fn(ids, ctx)`` returns raw neighbour tokens for set networks."""
+    import torch
+    S = torch.load(str(path), weights_only=False, map_location='cpu')
+    params = S['params']
+    m = np.ones(len(frame), bool) if params.get('taxi_expert') else np.isfinite(frame.atot_minus_aobt3.values.astype(float))
+    hs = frame[m]
+    Hn = _num_block_saved(hs, S['nums'], S['stats']); Hk = _cat_block_saved(hs, S['cats'], S['maps'])
+    dev = torch.device('cuda' if params.get('device', 'auto') != 'cpu' and torch.cuda.is_available() else 'cpu')
+    out = []
+    if S['kind'] == 'mlp':
+        net = build_mlp_net(S['maps'], S['cats'], S['n_num'], params)
+        net.load_state_dict(S['state_dict']); net = net.to(dev).eval()
+        with torch.no_grad():
+            Hn_t, Hk_t = torch.from_numpy(Hn), torch.from_numpy(Hk)
+            for i in range(0, len(Hn), 65536):
+                out.append(net(Hn_t[i:i + 65536].to(dev), Hk_t[i:i + 65536].to(dev)).cpu().numpy())
+    else:
+        net = build_set_net(S['maps'], S['cats'], S['n_num'], S['nf'], params)
+        net.load_state_dict(S['state_dict']); net = net.to(dev).eval()
+        Th = post_tokens(np.array(tokens_fn(hs.MVT_ID_mvt.values, params.get('ctx'))), params)
+        amp = dev.type == 'cuda' and params.get('amp', True)
+        with torch.no_grad(), torch.autocast(dev.type, dtype=torch.bfloat16, enabled=amp):
+            for i in range(0, len(Hn), 32768):
+                out.append(net(torch.from_numpy(Hn[i:i + 32768]).to(dev), torch.from_numpy(Hk[i:i + 32768]).to(dev),
+                               torch.from_numpy(Th[i:i + 32768]).to(dev)).float().cpu().numpy())
+    z = np.concatenate(out).astype('float64') if out else np.zeros(0)
+    r = np.full(len(frame), np.nan)
+    r[m] = 1.0 / (1.0 + np.exp(-z)) if S['clf'] else z * S['y_sd'] + S['y_mu'] - (hs.atot_minus_aobt3.values if S['direct'] else 0.0)
+    if dev.type == 'cuda':
+        torch.cuda.empty_cache()
+    return r

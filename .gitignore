@@ -1,0 +1,26 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+# data and outputs (PRC_WORK defaults to the repository root)
+/data/
+/data_old/
+/external/
+/adsb/
+/opdi/
+/frozen/
+/logs/
+/submissions/
+/submissions_rebuild/
+# runs/ holds outputs; only the layer scripts that live there are tracked
+/runs/**
+!/runs/**/
+!/runs/**/*.py
+*.parquet
+*.tar
+*.tar.*
+*.zip
+*.pt
+*.cbm
+.env
+# the manual-rows table lists flight ids of the challenge data: not tracked (docs/REPRODUCE.md)
+/config/manual_rows.csv
