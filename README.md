@@ -1,5 +1,9 @@
 # gentle-tractor — PRC Data Challenge 2026: departure taxi-out time
 
+**Our main competition pipeline intentionally excludes labels inferred from submission results and ensemble weights
+fitted to those results.** Experiments that use submission feedback are documented separately under
+[Experimental alternative models](#experimental-alternative-models).
+
 Code of team **gentle-tractor** for the EUROCONTROL Performance Review Commission (PRC) Data Challenge 2026: predict
 the **taxi-out time** (take-off time − actual off-block time, seconds) of every departure at ten European airports
 (EDDF, EDDM, EGLL, EHAM, LEBL, LEMD, LFPG, LIRF, LSZH, LTFM) in **January, February, June and July 2026** (the final
