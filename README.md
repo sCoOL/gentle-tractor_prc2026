@@ -65,6 +65,32 @@ How much single rows move the RMSE, and what the leaderboard showed about them: 
 `docs/FROZEN_ARTEFACTS.md`. Data sources and licences: `docs/DATA_SOURCES.md`. Every script with its usage line:
 `docs/SCRIPTS.md`.
 
+## Experimental alternative models
+
+The files in [Alternative Models](Alternative%20Models/) are provided **for testing**. This experiment fits ensemble
+weights to previous January / July 2026 submission results, checks candidate blends against saved 2025 predictions,
+and applies the frozen v85 weights to all four 2026 ranking months. These alternatives also treat **RYRR388G
+(2026-07-26) as a normal taxi**, following the evidence from submission-result comparisons described in
+[`docs/A_FEW_ROWS.md`](docs/A_FEW_ROWS.md#2-ryrr388g-2026-07-26-a-9-h-late-unmatched-flight-that-was-a-normal-taxi).
+Unlike the main pipeline described above, these alternatives explicitly use leaderboard feedback to fit their weights
+and inform this flight's treatment.
+
+| File | Coverage | Result / status |
+|---|---|---|
+| [gentle-tractor_v85.parquet](Alternative%20Models/gentle-tractor_v85.parquet) | January + July 2026; 344,841 departures | Estimated RMSE **212.5166 seconds (about 212.5 seconds)**, calculated from previous submission results; not a measured official score for this file. |
+| [gentle-tractor_final.parquet](Alternative%20Models/gentle-tractor_final.parquet) | January, February, June + July 2026; 670,790 departures | Frozen v85 weights applied to rebuilt source models and the final ranking inputs; official RMSE is unverified. |
+
+Some original source checkpoints were unavailable, so the four-month file rebuilds those sources from their recorded
+recipes. Its January / July predictions therefore differ from the original test by 7.93 seconds RMS, or 6.41 seconds
+after aligning the changed take-off timestamps. These are prediction differences, not measured error increases; the
+212.5-second estimate does not establish the rebuilt final file's score.
+
+On the saved 2025 comparison, the original v85 blend improved February + June RMSE by approximately 0.41 seconds
+relative to v84. These checks reused predictions and labels involved in model selection, and the rebuilt sources have
+not received fresh independent full-pipeline validation. February / June 2026 predictions are included for final
+evaluation, but their hidden labels are unavailable: better performance on those months or on the complete final
+ranking has not been established.
+
 ## Repository layout
 
 ```
@@ -77,6 +103,7 @@ config/         manual_rows.csv (not tracked; in the frozen download, see docs/R
 docs/           METHOD.md, DESIGN_DECISIONS.md, A_FEW_ROWS.md, REPRODUCE.md, FROZEN_ARTEFACTS.md, DATA_SOURCES.md,
                 SCRIPTS.md
 tests/          unit tests that need no data
+Alternative Models/  experimental v85 January / July and four-month prediction files (see above)
 requirements.txt
 LICENSE         GNU GPL v3
 ```
